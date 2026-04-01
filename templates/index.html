@@ -1,0 +1,307 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ECI 智能筛查系统</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        :root {
+            --bg: #0a0e14;
+            --card: #161b22;
+            --accent: #58a6ff;
+            --success: #3fb950;
+            --danger: #f85149;
+            --border: #30363d;
+        }
+
+        body {
+            background: var(--bg);
+            color: white;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+            margin: 0;
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+            overflow: hidden;
+        }
+
+        /* Header */
+        .header {
+            padding: 1rem 2rem;
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            background: var(--card);
+        }
+
+        .status-badge {
+            background: #238636;
+            padding: 6px 16px;
+            border-radius: 20px;
+            font-size: 14px;
+            font-weight: 600;
+            transition: all 0.3s ease;
+        }
+
+        /* Main Layout */
+        .main {
+            display: grid;
+            grid-template-columns: 1fr 380px;
+            gap: 20px;
+            padding: 20px;
+            flex: 1;
+            min-height: 0;
+        }
+
+        /* Video Area */
+        .video-container {
+            background: #000;
+            border-radius: 12px;
+            border: 1px solid var(--border);
+            overflow: hidden;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            position: relative;
+        }
+
+        .video-container img {
+            max-width: 100%;
+            max-height: 100%;
+            object-fit: contain;
+        }
+
+        /* Sidebar */
+        .sidebar {
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+            overflow-y: auto;
+            padding-right: 5px;
+        }
+
+        .card {
+            background: var(--card);
+            border-radius: 12px;
+            padding: 20px;
+            border: 1px solid var(--border);
+        }
+
+        .card-title {
+            color: #8b949e;
+            margin-bottom: 15px;
+            font-size: 14px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        /* Risk Value */
+        .risk-value {
+            font-size: 56px;
+            font-weight: 800;
+            color: var(--success);
+            text-align: center;
+            margin: 10px 0;
+            text-shadow: 0 0 20px rgba(63, 185, 80, 0.2);
+        }
+
+        /* Controls */
+        .btn-group { display: flex; flex-direction: column; gap: 10px; }
+
+        button {
+            padding: 10px 16px;
+            border-radius: 6px;
+            border: 1px solid var(--border);
+            background: #21262d;
+            color: #c9d1d9;
+            cursor: pointer;
+            font-weight: 600;
+            transition: 0.2s;
+        }
+
+        button:hover { background: #30363d; border-color: #8b949e; }
+
+        button.primary {
+            background: #238636;
+            color: white;
+            border: none;
+        }
+
+        button.primary:hover { background: #2ea043; }
+
+        #riskChart { width: 100% !important; height: 180px !important; }
+
+        .log-container {
+            font-family: 'Cascadia Code', 'Courier New', monospace;
+            font-size: 12px;
+            color: #8b949e;
+            height: 80px;
+            overflow-y: auto;
+            line-height: 1.5;
+        }
+
+        /* Custom Scrollbar */
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: #30363d; border-radius: 10px; }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <div style="display: flex; align-items: center; gap: 10px;">
+            <span style="font-size: 24px;">🧠</span>
+            <span style="font-size: 1.25rem; font-weight: bold; letter-spacing: -0.5px;">ECI 早期认知障碍双目筛查系统</span>
+        </div>
+        <div id="status" class="status-badge">系统就绪 | 实时模式</div>
+    </div>
+
+    <div class="main">
+        <div class="video-container">
+            <img id="main-stream" src="/video_feed?type=camera" alt="视频流加载中...">
+        </div>
+
+        <div class="sidebar">
+            <div class="card">
+                <div class="card-title">当前风险评分 (ECI Index)</div>
+                <div id="risk-num" class="risk-value">0.0%</div>
+            </div>
+
+            <div class="card">
+                <div class="card-title">控制面板</div>
+                <div class="btn-group">
+                    <button onclick="switchSource('camera')">📸 切换实时摄像头</button>
+                    <input type="file" id="videoInput" accept="video/*" style="display:none" onchange="handleUpload()">
+                    <button class="primary" onclick="document.getElementById('videoInput').click()">📁 上传测试视频文件</button>
+                </div>
+            </div>
+
+            <div class="card">
+                <div class="card-title">风险趋势分析</div>
+                <canvas id="riskChart"></canvas>
+            </div>
+
+            <div class="card">
+                <div class="card-title">系统日志</div>
+                <div id="log" class="log-container">等待算法模块挂载...</div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // 1. 初始化图表
+        const ctx = document.getElementById('riskChart').getContext('2d');
+        const chart = new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: Array(30).fill(''),
+                datasets: [{
+                    label: '风险概率',
+                    data: [],
+                    borderColor: '#58a6ff',
+                    backgroundColor: 'rgba(88, 166, 255, 0.1)',
+                    fill: true,
+                    tension: 0.4,
+                    pointRadius: 0
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: {
+                    y: { min: 0, max: 100, grid: { color: '#30363d' }, ticks: { color: '#8b949e' } },
+                    x: { display: false }
+                },
+                plugins: { legend: { display: false } }
+            }
+        });
+
+        // 2. 切换数据源逻辑
+        function switchSource(type, path = '') {
+            const streamImg = document.getElementById('main-stream');
+            const statusBadge = document.getElementById('status');
+            const timestamp = new Date().getTime(); // 防止浏览器缓存
+
+            if (type === 'camera') {
+                streamImg.src = `/video_feed?type=camera&t=${timestamp}`;
+                statusBadge.innerText = "系统就绪 | 实时模式";
+                statusBadge.style.background = "#238636";
+                addLog("已切换至本地摄像头实时输入");
+            } else {
+                streamImg.src = `/video_feed?type=video&path=${encodeURIComponent(path)}&t=${timestamp}`;
+                statusBadge.innerText = "系统就绪 | 视频分析模式";
+                statusBadge.style.background = "#1f6feb";
+                addLog(`正在加载视频文件: ${path.split('\\').pop()}`);
+            }
+        }
+
+        // 3. 异步上传逻辑
+        async function handleUpload() {
+            const fileInput = document.getElementById('videoInput');
+            if (fileInput.files.length === 0) return;
+
+            const file = fileInput.files[0];
+            const formData = new FormData();
+            formData.append('video', file);
+
+            addLog(`正在上传: ${file.name}...`);
+
+            try {
+                const response = await fetch('/upload', { method: 'POST', body: formData });
+                const result = await response.json();
+
+                if (result.success) {
+                    addLog("上传成功，开始视频推理。");
+                    switchSource('video', result.path);
+                } else {
+                    addLog(`上传失败: ${result.error}`);
+                }
+            } catch (e) {
+                addLog("网络错误，无法连接到 Flask 后端");
+            }
+        }
+
+        // 4. 定时轮询数据
+        setInterval(async () => {
+            try {
+                const res = await fetch('/data');
+                const data = await res.json();
+
+                // 更新 UI 数值
+                const riskEl = document.getElementById('risk-num');
+                riskEl.innerText = data.risk.toFixed(1) + '%';
+
+                // 动态变色：超过 50% 变红
+                if (data.risk > 50) {
+                    riskEl.style.color = '#f85149';
+                    riskEl.style.textShadow = '0 0 20px rgba(248, 81, 73, 0.3)';
+                } else {
+                    riskEl.style.color = '#3fb950';
+                    riskEl.style.textShadow = '0 0 20px rgba(63, 185, 80, 0.2)';
+                }
+
+                // 更新日志
+                if (data.status !== "追踪正常") {
+                    document.getElementById('log').innerHTML = `<span style="color:#d29922">! ${data.status}</span><br>` + document.getElementById('log').innerHTML;
+                }
+
+                // 更新趋势图
+                chart.data.datasets[0].data.push(data.risk);
+                if (chart.data.datasets[0].data.length > 30) {
+                    chart.data.datasets[0].data.shift();
+                }
+                chart.update('none'); // 'none' 减少动画开销提高性能
+            } catch (e) {
+                // 吞掉轮询初期的错误
+            }
+        }, 1000);
+
+        function addLog(msg) {
+            const logBox = document.getElementById('log');
+            const time = new Date().toLocaleTimeString();
+            logBox.innerHTML = `[${time}] ${msg}<br>` + logBox.innerHTML;
+        }
+    </script>
+</body>
+</html>

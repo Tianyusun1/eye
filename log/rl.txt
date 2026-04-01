@@ -1,0 +1,61 @@
+(eye) 610-sty@acfi6k1u4rbqs-0:~/money/eye$ python /home/610-sty/money/eye/train_lr.py
+=== ECI Binocular Screening System (LR Strict Baseline) ===
+Loading YOLOv8-pose ONNX model: /home/610-sty/money/eye/model/onnx/model.onnx
+
+[Strategy] Healthy Data: Strict physical chronological split (80/20).
+
+[Healthy Group - Train] Extracting features...
+Loading /home/610-sty/money/eye/model/onnx/model.onnx for ONNX Runtime inference...
+Using ONNX Runtime 1.23.2 with CUDAExecutionProvider
+
+[Healthy Group - Test] Extracting features...
+
+[Strategy] Patient Data: Isolating test1.mp4 as test set.
+  -> Video test2.mp4 processed, extracted 620 frames.
+  -> Video test3.mp4 processed, extracted 691 frames.
+  -> Video test4.mp4 processed, extracted 1771 frames.
+  -> Video test5.mp4 processed, extracted 2311 frames.
+  -> Video test1.mp4 processed, extracted 720 frames.
+
+[Data Aggregation Complete]
+Training set: 299 (Healthy: 120, Patient: 179)
+Test set: 54 (Healthy: 30, Patient: 24)
+
+[Data Preprocessing] Scaling features for Logistic Regression (StandardScaler)...
+
+[Model Training] Training Logistic Regression (Medical Gold Standard)...
+
+==================================================
+        System Evaluation Report (LR Baseline)
+==================================================
+Test Set Accuracy: 96.30%
+
+Detailed Classification Metrics:
+                    precision    recall  f1-score   support
+
+Low Risk (Healthy)       0.94      1.00      0.97        30
+   High Risk (ECI)       1.00      0.92      0.96        24
+
+          accuracy                           0.96        54
+         macro avg       0.97      0.96      0.96        54
+      weighted avg       0.97      0.96      0.96        54
+
+
+==================================================
+       LR Interpretability Analysis (Coefficients)
+==================================================
+[Feature Weight Ranking]:
+  TOP 1. Vertical Sync (Y-Corr)    Absolute Weight: 47.77%
+  TOP 2. Horizontal Sync (X-Corr)  Absolute Weight: 28.06%
+  TOP 3. Mean Norm Amp Diff        Absolute Weight: 12.68%
+  TOP 4. Diff L/R Y Std            Absolute Weight: 7.85%
+  TOP 5. Var Norm Amp Diff         Absolute Weight: 2.63%
+  TOP 6. Diff L/R X Std            Absolute Weight: 1.02%
+
+[Plot Generated] LR feature weight chart saved as 'feature_importance_lr.png'.
+
+[Model Saving] Saving the trained LR model and Scaler...
+  -> Model successfully saved to: eci_model_lr.pkl
+  -> Scaler successfully saved to: eci_scaler_lr.pkl
+     (Both files are required for the Demo application.)
+==================================================

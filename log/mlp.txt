@@ -1,0 +1,62 @@
+(eye) 610-sty@acfi6k1u4rbqs-0:~/money/eye$ python /home/610-sty/money/eye/train_mlp.py
+=== ECI Binocular Screening System (MLP Strict Baseline - CUDA Accelerated) ===
+Loading YOLOv8-pose ONNX model: /home/610-sty/money/eye/model/onnx/model.onnx
+
+[Strategy] Healthy Data: Strict physical chronological split (80/20).
+
+[Healthy Group - Train] Extracting features...
+Loading /home/610-sty/money/eye/model/onnx/model.onnx for ONNX Runtime inference...
+Using ONNX Runtime 1.23.2 with CUDAExecutionProvider
+
+[Healthy Group - Test] Extracting features...
+
+[Strategy] Patient Data: Isolating test1.mp4 as test set.
+  -> Video test2.mp4 processed, extracted 620 frames.
+  -> Video test3.mp4 processed, extracted 691 frames.
+  -> Video test4.mp4 processed, extracted 1771 frames.
+  -> Video test5.mp4 processed, extracted 2311 frames.
+  -> Video test1.mp4 processed, extracted 720 frames.
+
+[Data Aggregation Complete]
+Training set: 299 (Healthy: 120, Patient: 179)
+Test set: 54 (Healthy: 30, Patient: 24)
+
+[Data Preprocessing] Scaling features for Neural Network (StandardScaler)...
+
+[Model Training] Training Multi-Layer Perceptron (Neural Network) on CPU...
+
+==================================================
+        System Evaluation Report (MLP Baseline)
+==================================================
+Test Set Accuracy: 96.30%
+
+Detailed Classification Metrics:
+                    precision    recall  f1-score   support
+
+Low Risk (Healthy)       1.00      0.93      0.97        30
+   High Risk (ECI)       0.92      1.00      0.96        24
+
+          accuracy                           0.96        54
+         macro avg       0.96      0.97      0.96        54
+      weighted avg       0.97      0.96      0.96        54
+
+
+==================================================
+       MLP Interpretability (Permutation Importance)
+==================================================
+[Analyzing Black-box Model...] Please wait.
+[Feature Importance Ranking]:
+  TOP 1. Vertical Sync (Y-Corr)    Contribution: 66.80%
+  TOP 2. Horizontal Sync (X-Corr)  Contribution: 25.31%
+  TOP 3. Var Norm Amp Diff         Contribution: 6.22%
+  TOP 4. Diff L/R X Std            Contribution: 1.24%
+  TOP 5. Diff L/R Y Std            Contribution: 0.41%
+  TOP 6. N/A 1                     Contribution: 0.00%
+
+[Plot Generated] MLP feature importance chart saved as 'feature_importance_mlp.png'.
+
+[Model Saving] Saving the trained MLP model and Scaler...
+  -> Model successfully saved to: eci_model_mlp.pkl
+  -> Scaler successfully saved to: eci_scaler_mlp.pkl
+     (Both files are required for the Demo application.)
+==================================================
