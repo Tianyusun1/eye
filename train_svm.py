@@ -12,7 +12,7 @@ import warnings
 warnings.filterwarnings('ignore')
 
 # ==========================================
-# Module 1 & 2: 提取器与特征工程 (强化 CUDA 调用)
+# Module 1 & 2: 提取器与【全新尺度不变】特征工程
 # ==========================================
 class YoloEyeExtractor:
     def __init__(self, model_path):
@@ -25,7 +25,6 @@ class YoloEyeExtractor:
         if len(results) == 0 or results[0].keypoints is None:
             return np.zeros(2, dtype=np.float32), np.zeros(2, dtype=np.float32)
 
-        # .cpu().numpy() 确保将显存(CUDA)中的张量安全拉回内存(CPU)供后续数学特征运算
         keypoints = results[0].keypoints.xy[0].cpu().numpy() 
         if len(keypoints) < 3:
              return np.zeros(2, dtype=np.float32), np.zeros(2, dtype=np.float32)
@@ -58,14 +57,31 @@ class FeatureEngineer:
     @staticmethod
     def extract_features(left_seq, right_seq):
         features = []
-        l_seq_smooth = FeatureEngineer.moving_average(left_seq)
-        r_seq_smooth = FeatureEngineer.moving_average(right_seq)
+        
+        # ---------------------------------------------------------
+        # 【核心修复】: 双眼间距归一化 (彻底消除距离和分辨率影响)
+        # ---------------------------------------------------------
+        mean_l = np.mean(left_seq, axis=0)
+        mean_r = np.mean(right_seq, axis=0)
+        eye_dist = np.linalg.norm(mean_l - mean_r)
+        if eye_dist < 1e-5: 
+            eye_dist = 1.0 # 防止除零
+
+        # 转化为相对于眼距的比例坐标
+        l_seq_scaled = left_seq / eye_dist
+        r_seq_scaled = right_seq / eye_dist
+
+        # 平滑处理
+        l_seq_smooth = FeatureEngineer.moving_average(l_seq_scaled)
+        r_seq_smooth = FeatureEngineer.moving_average(r_seq_scaled)
+        
         l_seq_norm = FeatureEngineer.normalize_trajectory(l_seq_smooth)
         r_seq_norm = FeatureEngineer.normalize_trajectory(r_seq_smooth)
 
-        l_vel = FeatureEngineer.compute_velocity(l_seq_norm)
-        r_vel = FeatureEngineer.compute_velocity(r_seq_norm)
+        l_vel = FeatureEngineer.compute_velocity(l_seq_smooth)
+        r_vel = FeatureEngineer.compute_velocity(r_seq_smooth)
         
+        # 1-2. X/Y 轴相关性
         for i in range(2): 
             if np.std(l_vel[:, i]) == 0 or np.std(r_vel[:, i]) == 0:
                 corr = 0.0 
@@ -73,24 +89,37 @@ class FeatureEngineer:
                 corr = np.corrcoef(l_vel[:, i], r_vel[:, i])[0, 1]
             features.append(corr)
 
+        # 3-4. 振幅差异均值与方差
         l_amp = np.linalg.norm(l_vel, axis=1)
         r_amp = np.linalg.norm(r_vel, axis=1)
         amp_diff = np.abs(l_amp - r_amp)
         features.append(np.mean(amp_diff))
         features.append(np.var(amp_diff))
 
+        # 5-6. X/Y轴标准差(晃动幅度)的绝对差异
         l_std_x, l_std_y = np.std(l_seq_smooth[:, 0]), np.std(l_seq_smooth[:, 1])
         r_std_x, r_std_y = np.std(r_seq_smooth[:, 0]), np.std(r_seq_smooth[:, 1])
         
         features.append(np.abs(l_std_x - r_std_x)) 
         features.append(np.abs(l_std_y - r_std_y)) 
         
-        features.append(0.0)
-        features.append(0.0)
+        # =========================================================
+        # 【新增核心】: 凝视点分散度特征 (Gaze Dispersion)
+        # 估算凝视点：取归一化后的左右眼坐标的中心点
+        # =========================================================
+        gaze_points = (l_seq_scaled + r_seq_scaled) / 2.0  
+        
+        gaze_dispersion_x = np.std(gaze_points[:, 0])
+        gaze_dispersion_y = np.std(gaze_points[:, 1])
+        
+        features.append(gaze_dispersion_x) 
+        features.append(gaze_dispersion_y) 
+        # =========================================================
+        
         return np.array(features)
 
 # ==========================================
-# Module 3: 严格物理隔离的健康数据处理
+# Module 3 & 4: 数据处理
 # ==========================================
 def process_healthy_images_strict(image_paths_list, extractor, seq_len=30, max_seqs=150, desc=""):
     X_healthy, y_healthy = [], []
@@ -110,9 +139,6 @@ def process_healthy_images_strict(image_paths_list, extractor, seq_len=30, max_s
         seq_count += 1
     return np.array(X_healthy), np.array(y_healthy)
 
-# ==========================================
-# Module 4: 患者视频处理
-# ==========================================
 def process_patient_videos(video_paths, extractor, seq_len=30):
     X_ill, y_ill = [], []
     for vid_path in video_paths:
@@ -136,10 +162,10 @@ def process_patient_videos(video_paths, extractor, seq_len=30):
     return np.array(X_ill), np.array(y_ill)
 
 # ==========================================
-# Module 5: SVM 对比实验主流程 (绝对双向物理隔离)
+# Module 5: SVM 对比实验主流程
 # ==========================================
 if __name__ == "__main__":
-    print("=== ECI Binocular Screening System (SVM Strict Baseline - CUDA Accelerated) ===")
+    print("=== ECI Binocular Screening System (Robust SVM Baseline) ===")
     
     onnx_path = "/home/610-sty/money/eye/model/onnx/model.onnx"
     healthy_path = "/home/610-sty/money/eye/MPIIFaceGaze_dataset/MPIIFaceGaze"
@@ -147,9 +173,6 @@ if __name__ == "__main__":
     
     extractor = YoloEyeExtractor(model_path=onnx_path)
     
-    # --------------------------------------------------
-    # 健康组数据的严格物理切分
-    # --------------------------------------------------
     all_healthy_images = glob.glob(os.path.join(healthy_path, "**", "*.jpg"), recursive=True)
     all_healthy_images = sorted(all_healthy_images) 
     
@@ -161,44 +184,39 @@ if __name__ == "__main__":
     X_h_train, y_h_train = process_healthy_images_strict(healthy_train_images, extractor, seq_len=30, max_seqs=120, desc="Train")
     X_h_test, y_h_test = process_healthy_images_strict(healthy_test_images, extractor, seq_len=30, max_seqs=30, desc="Test")
     
-    # --------------------------------------------------
-    # 患者组数据的留一法物理隔离
-    # --------------------------------------------------
     all_ill_videos = glob.glob(os.path.join(ill_dir, "*.mp4")) + glob.glob(os.path.join(ill_dir, "*.avi"))
     test_videos = [v for v in all_ill_videos if "test1" in os.path.basename(v)]
     train_videos = [v for v in all_ill_videos if "test1" not in os.path.basename(v)]
     
-    print(f"\n[Strategy] Patient Data: Isolating {os.path.basename(test_videos[0])} as test set.")
+    print(f"\n[Strategy] Patient Data: Isolating test set.")
     X_ill_train, y_ill_train = process_patient_videos(train_videos, extractor, seq_len=30)
     X_ill_test, y_ill_test = process_patient_videos(test_videos, extractor, seq_len=30)
     
-    # --------------------------------------------------
-    # 汇聚最终训练和测试集
-    # --------------------------------------------------
     X_train = np.vstack((X_h_train, X_ill_train))
     y_train = np.hstack((y_h_train, y_ill_train))
     X_test = np.vstack((X_h_test, X_ill_test))
     y_test = np.hstack((y_h_test, y_ill_test))
     
-    print(f"\n[Data Aggregation Complete]")
-    print(f"Training set: {len(X_train)} (Healthy: {sum(y_train==0)}, Patient: {sum(y_train==1)})")
-    print(f"Test set: {len(X_test)} (Healthy: {sum(y_test==0)}, Patient: {sum(y_test==1)})")
-    
+    # ⚠️ SVM 必须做数据标准化 (Z-score)，而且只用训练集拟合 StandardScaler
     print("\n[Data Preprocessing] Scaling features for SVM (StandardScaler)...")
     scaler = StandardScaler()
     X_train_scaled = scaler.fit_transform(X_train)
     X_test_scaled = scaler.transform(X_test)
     
-    # SVM 模型依旧在纯净强大的 CPU 上执行数学核函数推导
-    print("\n[Model Training] Training Support Vector Machine (Linear Kernel) on CPU...")
-    clf_svm = SVC(kernel='linear', class_weight='balanced', random_state=42)
+    # ---------------------------------------------------------
+    # 【核心修复】: 强抗过拟合的 SVM 配置
+    # 加入 probability=True 允许输出概率
+    # 调低 C=0.5 (默认是1.0)，增加正则化惩罚，强制平滑分类边界，防止死记硬背
+    # ---------------------------------------------------------
+    print("\n[Model Training] Training Robust Support Vector Machine (Linear Kernel)...")
+    clf_svm = SVC(kernel='linear', C=0.5, class_weight='balanced', probability=True, random_state=42)
     clf_svm.fit(X_train_scaled, y_train)
     
     y_pred = clf_svm.predict(X_test_scaled)
     acc = accuracy_score(y_test, y_pred)
     
     print("\n==================================================")
-    print("        System Evaluation Report (SVM Baseline)")
+    print("        System Evaluation Report (Robust SVM)")
     print("==================================================")
     print(f"Test Set Accuracy: {acc * 100:.2f}%")
     print("\nDetailed Classification Metrics:")
@@ -211,6 +229,9 @@ if __name__ == "__main__":
     print("       SVM Interpretability Analysis (Linear Weights)")
     print("==================================================")
     
+    # =========================================================
+    # 【修改名称】: 同步修改为对应的特征名称
+    # =========================================================
     feature_names = [
         "Horizontal Sync (X-Corr)", 
         "Vertical Sync (Y-Corr)", 
@@ -218,8 +239,8 @@ if __name__ == "__main__":
         "Var Norm Amp Diff",
         "Diff L/R X Std", 
         "Diff L/R Y Std", 
-        "N/A 1", 
-        "N/A 2"
+        "Gaze Dispersion X", 
+        "Gaze Dispersion Y"
     ]
     
     importances = np.abs(clf_svm.coef_[0])
@@ -233,7 +254,7 @@ if __name__ == "__main__":
         
     try:
         plt.figure(figsize=(12, 6))
-        plt.title("SVM Baseline: Feature Weight Analysis", fontsize=14, fontweight='bold')
+        plt.title("Robust SVM: Feature Weight Analysis", fontsize=14, fontweight='bold')
         bars = plt.bar(range(6), importances[indices][:6], align="center", color='#DD8452') 
         plt.xticks(range(6), [feature_names[i] for i in indices][:6], rotation=45, ha='right', fontsize=11)
         plt.xlim([-1, 6])
@@ -244,21 +265,15 @@ if __name__ == "__main__":
             yval = bar.get_height()
             plt.text(bar.get_x() + bar.get_width()/2, yval + 0.005, f'{yval*100:.1f}%', ha='center', va='bottom', fontsize=10)
             
-        plt.savefig("feature_importance_svm.png", dpi=300)
-        print("\n[Plot Generated] SVM feature weight chart saved as 'feature_importance_svm.png'.")
+        plt.savefig("feature_importance_svm_robust.png", dpi=300)
     except Exception as e:
         print(f"\n[Plotting Failed] Error: {e}")
         
     model_save_path = "eci_model_svm.pkl"
     scaler_save_path = "eci_scaler_svm.pkl"
     print("\n[Model Saving] Saving the trained SVM model and Scaler...")
-    try:
-        joblib.dump(clf_svm, model_save_path)
-        joblib.dump(scaler, scaler_save_path)
-        print(f"  -> Model successfully saved to: {model_save_path}")
-        print(f"  -> Scaler successfully saved to: {scaler_save_path}")
-        print("     (Both files are required for the Demo application.)")
-    except Exception as e:
-        print(f"  -> Failed to save model or scaler. Error: {e}")
-
+    joblib.dump(clf_svm, model_save_path)
+    joblib.dump(scaler, scaler_save_path) # 对于 SVM 必须保存 scaler
+    print(f"  -> Model successfully saved to: {model_save_path}")
+    print(f"  -> Scaler successfully saved to: {scaler_save_path}")
     print("==================================================")

@@ -1,5 +1,5 @@
 (eye) 610-sty@acfi6k1u4rbqs-0:~/money/eye$ python train_svm.py
-=== ECI Binocular Screening System (SVM Strict Baseline - CUDA Accelerated) ===
+=== ECI Binocular Screening System (Robust SVM Baseline) ===
 Loading YOLOv8-pose ONNX model: /home/610-sty/money/eye/model/onnx/model.onnx
 
 [Strategy] Healthy Data: Strict physical chronological split (80/20).
@@ -10,52 +10,44 @@ Using ONNX Runtime 1.23.2 with CUDAExecutionProvider
 
 [Healthy Group - Test] Extracting features...
 
-[Strategy] Patient Data: Isolating test1.mp4 as test set.
+[Strategy] Patient Data: Isolating test set.
   -> Video test2.mp4 processed, extracted 620 frames.
   -> Video test3.mp4 processed, extracted 691 frames.
   -> Video test4.mp4 processed, extracted 1771 frames.
   -> Video test5.mp4 processed, extracted 2311 frames.
   -> Video test1.mp4 processed, extracted 720 frames.
 
-[Data Aggregation Complete]
-Training set: 299 (Healthy: 120, Patient: 179)
-Test set: 54 (Healthy: 30, Patient: 24)
-
 [Data Preprocessing] Scaling features for SVM (StandardScaler)...
 
-[Model Training] Training Support Vector Machine (Linear Kernel) on CPU...
+[Model Training] Training Robust Support Vector Machine (Linear Kernel)...
 
 ==================================================
-        System Evaluation Report (SVM Baseline)
+        System Evaluation Report (Robust SVM)
 ==================================================
-Test Set Accuracy: 98.15%
+Test Set Accuracy: 90.74%
 
 Detailed Classification Metrics:
                     precision    recall  f1-score   support
 
-Low Risk (Healthy)       0.97      1.00      0.98        30
-   High Risk (ECI)       1.00      0.96      0.98        24
+Low Risk (Healthy)       1.00      0.83      0.91        30
+   High Risk (ECI)       0.83      1.00      0.91        24
 
-          accuracy                           0.98        54
-         macro avg       0.98      0.98      0.98        54
-      weighted avg       0.98      0.98      0.98        54
+          accuracy                           0.91        54
+         macro avg       0.91      0.92      0.91        54
+      weighted avg       0.92      0.91      0.91        54
 
 
 ==================================================
        SVM Interpretability Analysis (Linear Weights)
 ==================================================
 [Feature Weight Ranking]:
-  TOP 1. Vertical Sync (Y-Corr)    Absolute Weight: 56.76%
-  TOP 2. Horizontal Sync (X-Corr)  Absolute Weight: 24.77%
-  TOP 3. Mean Norm Amp Diff        Absolute Weight: 13.17%
-  TOP 4. Var Norm Amp Diff         Absolute Weight: 3.61%
-  TOP 5. Diff L/R Y Std            Absolute Weight: 1.61%
-  TOP 6. Diff L/R X Std            Absolute Weight: 0.09%
-
-[Plot Generated] SVM feature weight chart saved as 'feature_importance_svm.png'.
+  TOP 1. Mean Norm Amp Diff        Absolute Weight: 27.11%
+  TOP 2. Vertical Sync (Y-Corr)    Absolute Weight: 22.42%
+  TOP 3. Horizontal Sync (X-Corr)  Absolute Weight: 17.34%
+  TOP 4. Gaze Dispersion Y         Absolute Weight: 13.99%
+  TOP 5. Diff L/R Y Std            Absolute Weight: 6.21%
+  TOP 6. Diff L/R X Std            Absolute Weight: 6.16%
 
 [Model Saving] Saving the trained SVM model and Scaler...
   -> Model successfully saved to: eci_model_svm.pkl
   -> Scaler successfully saved to: eci_scaler_svm.pkl
-     (Both files are required for the Demo application.)
-==================================================

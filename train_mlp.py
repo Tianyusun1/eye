@@ -2,7 +2,7 @@ import os
 import cv2
 import glob
 import numpy as np
-import joblib  # 新增：用于保存和加载模型与scaler
+import joblib  # 用于保存和加载模型与scaler
 from ultralytics import YOLO
 from sklearn.neural_network import MLPClassifier
 from sklearn.preprocessing import StandardScaler
@@ -13,7 +13,7 @@ import warnings
 warnings.filterwarnings('ignore')
 
 # ==========================================
-# Module 1 & 2: 提取器与特征工程 (强化 CUDA 调用)
+# Module 1 & 2: 提取器与【全新尺度不变】特征工程
 # ==========================================
 class YoloEyeExtractor:
     def __init__(self, model_path):
@@ -60,13 +60,29 @@ class FeatureEngineer:
     @staticmethod
     def extract_features(left_seq, right_seq):
         features = []
-        l_seq_smooth = FeatureEngineer.moving_average(left_seq)
-        r_seq_smooth = FeatureEngineer.moving_average(right_seq)
+        
+        # ---------------------------------------------------------
+        # 【核心修复】: 双眼间距归一化 (彻底消除距离和分辨率影响)
+        # ---------------------------------------------------------
+        mean_l = np.mean(left_seq, axis=0)
+        mean_r = np.mean(right_seq, axis=0)
+        eye_dist = np.linalg.norm(mean_l - mean_r)
+        if eye_dist < 1e-5: 
+            eye_dist = 1.0 # 防止除零
+
+        # 将绝对像素坐标转化为“相对于眼距的比例坐标”
+        l_seq_scaled = left_seq / eye_dist
+        r_seq_scaled = right_seq / eye_dist
+
+        # 基于比例坐标进行平滑计算
+        l_seq_smooth = FeatureEngineer.moving_average(l_seq_scaled)
+        r_seq_smooth = FeatureEngineer.moving_average(r_seq_scaled)
+        
         l_seq_norm = FeatureEngineer.normalize_trajectory(l_seq_smooth)
         r_seq_norm = FeatureEngineer.normalize_trajectory(r_seq_smooth)
 
-        l_vel = FeatureEngineer.compute_velocity(l_seq_norm)
-        r_vel = FeatureEngineer.compute_velocity(r_seq_norm)
+        l_vel = FeatureEngineer.compute_velocity(l_seq_smooth)
+        r_vel = FeatureEngineer.compute_velocity(r_seq_smooth)
         
         for i in range(2): 
             if np.std(l_vel[:, i]) == 0 or np.std(r_vel[:, i]) == 0:
@@ -87,8 +103,20 @@ class FeatureEngineer:
         features.append(np.abs(l_std_x - r_std_x)) 
         features.append(np.abs(l_std_y - r_std_y)) 
         
-        features.append(0.0)
-        features.append(0.0)
+        # =========================================================
+        # 【新增核心】: 凝视点分散度特征 (Gaze Dispersion)
+        # =========================================================
+        # 估算凝视点：取归一化后的左右眼坐标的中心点
+        gaze_points = (l_seq_scaled + r_seq_scaled) / 2.0  
+        
+        # 分析其在时间窗口内的分散程度（标准差）
+        gaze_dispersion_x = np.std(gaze_points[:, 0])
+        gaze_dispersion_y = np.std(gaze_points[:, 1])
+        
+        features.append(gaze_dispersion_x)
+        features.append(gaze_dispersion_y)
+        # =========================================================
+        
         return np.array(features)
 
 # ==========================================
@@ -141,7 +169,7 @@ def process_patient_videos(video_paths, extractor, seq_len=30):
 # Module 5: MLP 对比实验主流程 (绝对双向物理隔离)
 # ==========================================
 if __name__ == "__main__":
-    print("=== ECI Binocular Screening System (MLP Strict Baseline - CUDA Accelerated) ===")
+    print("=== ECI Binocular Screening System (Robust MLP Baseline) ===")
     
     onnx_path = "/home/610-sty/money/eye/model/onnx/model.onnx"
     healthy_path = "/home/610-sty/money/eye/MPIIFaceGaze_dataset/MPIIFaceGaze"
@@ -170,7 +198,7 @@ if __name__ == "__main__":
     test_videos = [v for v in all_ill_videos if "test1" in os.path.basename(v)]
     train_videos = [v for v in all_ill_videos if "test1" not in os.path.basename(v)]
     
-    print(f"\n[Strategy] Patient Data: Isolating {os.path.basename(test_videos[0])} as test set.")
+    print(f"\n[Strategy] Patient Data: Isolating {os.path.basename(test_videos[0]) if test_videos else 'None'} as test set.")
     X_ill_train, y_ill_train = process_patient_videos(train_videos, extractor, seq_len=30)
     X_ill_test, y_ill_test = process_patient_videos(test_videos, extractor, seq_len=30)
     
@@ -186,21 +214,33 @@ if __name__ == "__main__":
     print(f"Training set: {len(X_train)} (Healthy: {sum(y_train==0)}, Patient: {sum(y_train==1)})")
     print(f"Test set: {len(X_test)} (Healthy: {sum(y_test==0)}, Patient: {sum(y_test==1)})")
     
+    # MLP 非常依赖数据标准化
     print("\n[Data Preprocessing] Scaling features for Neural Network (StandardScaler)...")
     scaler = StandardScaler()
     X_train_scaled = scaler.fit_transform(X_train)
     X_test_scaled = scaler.transform(X_test)
     
-    # MLP 神经网络同样在 CPU 上执行训练，因为数据量极小，CPU 秒杀
-    print("\n[Model Training] Training Multi-Layer Perceptron (Neural Network) on CPU...")
-    clf_mlp = MLPClassifier(hidden_layer_sizes=(32, 16), activation='relu', solver='adam', max_iter=500, random_state=42)
+    # ---------------------------------------------------------
+    # 【核心修复】: 强抗过拟合的 MLP 配置
+    # 1. 减少隐藏层节点 (32, 16) -> (16, 8)，对于只有8个特征的数据集足以防过拟合
+    # 2. 增加 L2 正则化惩罚 alpha=0.05 (默认0.0001)，限制权重膨胀
+    # ---------------------------------------------------------
+    print("\n[Model Training] Training Robust Multi-Layer Perceptron (Neural Network)...")
+    clf_mlp = MLPClassifier(
+        hidden_layer_sizes=(16, 8), 
+        activation='relu', 
+        solver='adam', 
+        alpha=0.05, 
+        max_iter=500, 
+        random_state=42
+    )
     clf_mlp.fit(X_train_scaled, y_train)
     
     y_pred = clf_mlp.predict(X_test_scaled)
     acc = accuracy_score(y_test, y_pred)
     
     print("\n==================================================")
-    print("        System Evaluation Report (MLP Baseline)")
+    print("        System Evaluation Report (Robust MLP)")
     print("==================================================")
     print(f"Test Set Accuracy: {acc * 100:.2f}%")
     print("\nDetailed Classification Metrics:")
@@ -213,6 +253,9 @@ if __name__ == "__main__":
     print("       MLP Interpretability (Permutation Importance)")
     print("==================================================")
     
+    # =========================================================
+    # 【修改名称】: 这里的占位符同步修改为对应的特征名称
+    # =========================================================
     feature_names = [
         "Horizontal Sync (X-Corr)", 
         "Vertical Sync (Y-Corr)", 
@@ -220,8 +263,8 @@ if __name__ == "__main__":
         "Var Norm Amp Diff",
         "Diff L/R X Std", 
         "Diff L/R Y Std", 
-        "N/A 1", 
-        "N/A 2"
+        "Gaze Dispersion X", 
+        "Gaze Dispersion Y"
     ]
     
     print("[Analyzing Black-box Model...] Please wait.")
@@ -240,7 +283,7 @@ if __name__ == "__main__":
         
     try:
         plt.figure(figsize=(12, 6))
-        plt.title("MLP Baseline: Permutation Feature Importance", fontsize=14, fontweight='bold')
+        plt.title("Robust MLP: Permutation Feature Importance", fontsize=14, fontweight='bold')
         
         bars = plt.bar(range(6), importances[indices][:6], align="center", color='#55A868') 
         plt.xticks(range(6), [feature_names[i] for i in indices][:6], rotation=45, ha='right', fontsize=11)
@@ -252,13 +295,12 @@ if __name__ == "__main__":
             yval = bar.get_height()
             plt.text(bar.get_x() + bar.get_width()/2, yval + 0.005, f'{yval*100:.1f}%', ha='center', va='bottom', fontsize=10)
             
-        plt.savefig("feature_importance_mlp.png", dpi=300)
-        print("\n[Plot Generated] MLP feature importance chart saved as 'feature_importance_mlp.png'.")
+        plt.savefig("feature_importance_mlp_robust.png", dpi=300)
     except Exception as e:
         print(f"\n[Plotting Failed] Error: {e}")
         
     # --------------------------------------------------
-    # 新增核心：保存训练好的 MLP 模型和 StandardScaler
+    # 模型保存
     # --------------------------------------------------
     model_save_path = "eci_model_mlp.pkl"
     scaler_save_path = "eci_scaler_mlp.pkl"
@@ -268,7 +310,6 @@ if __name__ == "__main__":
         joblib.dump(scaler, scaler_save_path)
         print(f"  -> Model successfully saved to: {model_save_path}")
         print(f"  -> Scaler successfully saved to: {scaler_save_path}")
-        print("     (Both files are required for the Demo application.)")
     except Exception as e:
         print(f"  -> Failed to save model or scaler. Error: {e}")
 

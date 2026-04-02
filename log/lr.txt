@@ -1,5 +1,5 @@
-ye) 610-sty@acfi6k1u4rbqs-0:~/money/eye$ python train_mlp.py
-=== ECI Binocular Screening System (Robust MLP Baseline) ===
+eye) 610-sty@acfi6k1u4rbqs-0:~/money/eye$ python train_lr.py
+=== ECI Binocular Screening System (Robust LR Baseline) ===
 Loading YOLOv8-pose ONNX model: /home/610-sty/money/eye/model/onnx/model.onnx
 
 [Strategy] Healthy Data: Strict physical chronological split (80/20).
@@ -21,12 +21,12 @@ Using ONNX Runtime 1.23.2 with CUDAExecutionProvider
 Training set: 299 (Healthy: 120, Patient: 179)
 Test set: 54 (Healthy: 30, Patient: 24)
 
-[Data Preprocessing] Scaling features for Neural Network (StandardScaler)...
+[Data Preprocessing] Scaling features for Logistic Regression (StandardScaler)...
 
-[Model Training] Training Robust Multi-Layer Perceptron (Neural Network)...
+[Model Training] Training Robust Logistic Regression (Medical Gold Standard)...
 
 ==================================================
-        System Evaluation Report (Robust MLP)
+        System Evaluation Report (Robust LR Baseline)
 ==================================================
 Test Set Accuracy: 88.89%
 
@@ -42,18 +42,18 @@ Low Risk (Healthy)       1.00      0.80      0.89        30
 
 
 ==================================================
-       MLP Interpretability (Permutation Importance)
+       LR Interpretability Analysis (Coefficients)
 ==================================================
-[Analyzing Black-box Model...] Please wait.
-[Feature Importance Ranking]:
-  TOP 1. Gaze Dispersion Y         Contribution: 31.78%
-  TOP 2. Vertical Sync (Y-Corr)    Contribution: 15.25%
-  TOP 3. Diff L/R Y Std            Contribution: 13.95%
-  TOP 4. Horizontal Sync (X-Corr)  Contribution: 11.89%
-  TOP 5. Mean Norm Amp Diff        Contribution: 11.89%
-  TOP 6. Diff L/R X Std            Contribution: 8.53%
+[Feature Weight Ranking]:
+  TOP 1. Mean Norm Amp Diff        Absolute Weight: 24.32%
+  TOP 2. Vertical Sync (Y-Corr)    Absolute Weight: 18.58%
+  TOP 3. Gaze Dispersion Y         Absolute Weight: 17.68%
+  TOP 4. Horizontal Sync (X-Corr)  Absolute Weight: 14.33%
+  TOP 5. Gaze Dispersion X         Absolute Weight: 7.78%
+  TOP 6. Diff L/R Y Std            Absolute Weight: 6.35%
 
-[Model Saving] Saving the trained MLP model and Scaler...
-  -> Model successfully saved to: eci_model_mlp.pkl
-  -> Scaler successfully saved to: eci_scaler_mlp.pkl
+[Model Saving] Saving the trained LR model and Scaler...
+  -> Model successfully saved to: eci_model_lr.pkl
+  -> Scaler successfully saved to: eci_scaler_lr.pkl
 ==================================================
+(eye) 610-sty@acfi6k1u4rbqs-0:~/money/eye$ 

@@ -1,0 +1,55 @@
+== ECI Binocular Screening System (Deep Learning: LSTM on cuda) ===
+Loading YOLOv8-pose ONNX model: /home/610-sty/money/eye/model/onnx/model.onnx
+
+[Strategy] Healthy Data: Strict physical chronological split (80/20).
+
+[Healthy Group - Train] Extracting temporal sequences...
+Loading /home/610-sty/money/eye/model/onnx/model.onnx for ONNX Runtime inference...
+Using ONNX Runtime 1.23.2 with CUDAExecutionProvider
+
+[Healthy Group - Test] Extracting temporal sequences...
+
+[Strategy] Patient Data: Isolating test set.
+  -> Video test2.mp4 processed, extracted 620 frames.
+  -> Video test3.mp4 processed, extracted 691 frames.
+  -> Video test4.mp4 processed, extracted 1771 frames.
+  -> Video test5.mp4 processed, extracted 2311 frames.
+  -> Video test1.mp4 processed, extracted 720 frames.
+
+[Data Aggregation Complete]
+Training set: 299 sequences of shape (30, 4)
+Test set: 54 sequences of shape (30, 4)
+
+[Model Training] Starting LSTM Training on cuda
+  -> Epoch [10/100], Loss: 0.6912
+  -> Epoch [20/100], Loss: 0.6939
+  -> Epoch [30/100], Loss: 0.6947
+  -> Epoch [40/100], Loss: 0.6944
+  -> Epoch [50/100], Loss: 0.6942
+  -> Epoch [60/100], Loss: 0.6903
+  -> Epoch [70/100], Loss: 0.1332
+  -> Epoch [80/100], Loss: 0.0595
+  -> Epoch [90/100], Loss: 0.0146
+  -> Epoch [100/100], Loss: 0.0017
+
+==================================================
+        System Evaluation Report (LSTM Model)
+==================================================
+Test Set Accuracy: 66.67%
+
+Detailed Classification Metrics:
+                    precision    recall  f1-score   support
+
+Low Risk (Healthy)       0.88      0.47      0.61        30
+   High Risk (ECI)       0.58      0.92      0.71        24
+
+          accuracy                           0.67        54
+         macro avg       0.73      0.69      0.66        54
+      weighted avg       0.74      0.67      0.65        54
+
+
+[Plot Generated] LSTM loss curve saved as 'lstm_training_loss.png'.
+
+[Model Saving] Saving the trained LSTM model...
+  -> Model successfully saved to: eci_model_lstm.pth
+==================================================

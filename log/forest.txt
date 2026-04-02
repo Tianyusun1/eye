@@ -1,4 +1,6 @@
-=== ECI Binocular Screening System (Random Forest Baseline Version) ===
+==================================================
+(eye) 610-sty@acfi6k1u4rbqs-0:~/money/eye$ python train_forest.py
+=== ECI Binocular Screening System (Robust Random Forest Version) ===
 Loading YOLOv8-pose ONNX model: /home/610-sty/money/eye/model/onnx/model.onnx
 
 [Strategy] Healthy Data: Strict physical chronological split (80/20).
@@ -16,38 +18,35 @@ Using ONNX Runtime 1.23.2 with CUDAExecutionProvider
   -> Video test5.mp4 processed, extracted 2311 frames.
   -> Video test1.mp4 processed, extracted 720 frames.
 
-[Model Training] Training Random Forest Classifier...
+[Model Training] Training Robust Random Forest Classifier...
 
 ==================================================
-        System Evaluation Report (Random Forest Baseline)
+        System Evaluation Report (Robust RF Baseline)
 ==================================================
-Test Set Accuracy: 98.15%
+Test Set Accuracy: 64.81%
 
 Detailed Classification Metrics:
                     precision    recall  f1-score   support
 
-Low Risk (Healthy)       1.00      0.97      0.98        30
-   High Risk (ECI)       0.96      1.00      0.98        24
+Low Risk (Healthy)       1.00      0.37      0.54        30
+   High Risk (ECI)       0.56      1.00      0.72        24
 
-          accuracy                           0.98        54
-         macro avg       0.98      0.98      0.98        54
-      weighted avg       0.98      0.98      0.98        54
+          accuracy                           0.65        54
+         macro avg       0.78      0.68      0.63        54
+      weighted avg       0.80      0.65      0.62        54
 
 
 ==================================================
        Random Forest Interpretability Analysis
 ==================================================
 [Feature Importance Ranking]:
-  TOP 1. Vertical Sync (Y-Corr)    Contribution: 53.45%
-  TOP 2. Horizontal Sync (X-Corr)  Contribution: 27.52%
-  TOP 3. Diff L/R Y Std            Contribution: 7.29%
-  TOP 4. Mean Norm Amp Diff        Contribution: 4.39%
-  TOP 5. Var Norm Amp Diff         Contribution: 4.05%
-  TOP 6. Diff L/R X Std            Contribution: 3.31%
+  TOP 1. Gaze Dispersion Y         Contribution: 26.75%
+  TOP 2. Mean Norm Amp Diff        Contribution: 24.94%
+  TOP 3. Vertical Sync (Y-Corr)    Contribution: 20.84%
+  TOP 4. Var Norm Amp Diff         Contribution: 13.58%
+  TOP 5. Gaze Dispersion X         Contribution: 8.77%
+  TOP 6. Horizontal Sync (X-Corr)  Contribution: 4.42%
 
-[Plot Generated] Random Forest feature importance chart saved as 'feature_importance_rf.png'.
-
-[Model Saving] Saving the trained Random Forest model...
+[Model Saving] Saving the trained Robust Random Forest model...
   -> Model successfully saved to: eci_model_rf.pkl
-     (Ready to be loaded by the Demo application.)
 ==================================================

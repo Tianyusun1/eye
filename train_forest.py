@@ -2,10 +2,9 @@ import os
 import cv2
 import glob
 import numpy as np
-import joblib  # 用于保存和加载模型与scaler
+import joblib 
 from ultralytics import YOLO
-from sklearn.linear_model import LogisticRegression
-from sklearn.preprocessing import StandardScaler
+from sklearn.ensemble import RandomForestClassifier
 from sklearn.metrics import classification_report, accuracy_score
 import matplotlib.pyplot as plt
 import warnings
@@ -58,28 +57,33 @@ class FeatureEngineer:
         features = []
         
         # ---------------------------------------------------------
-        # 【核心修复】: 双眼间距归一化 (彻底消除距离和分辨率影响)
+        # 【根治方案核心 1】: 双眼间距归一化 (彻底消除距离和分辨率影响)
         # ---------------------------------------------------------
         mean_l = np.mean(left_seq, axis=0)
         mean_r = np.mean(right_seq, axis=0)
+        # 计算左右眼平均间距
         eye_dist = np.linalg.norm(mean_l - mean_r)
         if eye_dist < 1e-5: 
-            eye_dist = 1.0 # 防止除零
+            eye_dist = 1.0 # 防止除以零
 
         # 将绝对像素坐标转化为“相对于眼距的比例坐标”
         l_seq_scaled = left_seq / eye_dist
         r_seq_scaled = right_seq / eye_dist
 
+        # ---------------------------------------------------------
         # 基于比例坐标进行平滑计算
         l_seq_smooth = FeatureEngineer.moving_average(l_seq_scaled)
         r_seq_smooth = FeatureEngineer.moving_average(r_seq_scaled)
         
+        # Z-score 归一化用于计算皮尔逊相关性
         l_seq_norm = FeatureEngineer.normalize_trajectory(l_seq_smooth)
         r_seq_norm = FeatureEngineer.normalize_trajectory(r_seq_smooth)
 
+        # 提取速度特征（此时的速度已经是相对比例，不受像素影响）
         l_vel = FeatureEngineer.compute_velocity(l_seq_smooth)
         r_vel = FeatureEngineer.compute_velocity(r_seq_smooth)
         
+        # 特征 1-2: X轴和Y轴的运动相关性 (双眼同步率)
         for i in range(2): 
             if np.std(l_vel[:, i]) == 0 or np.std(r_vel[:, i]) == 0:
                 corr = 0.0 
@@ -87,12 +91,14 @@ class FeatureEngineer:
                 corr = np.corrcoef(l_vel[:, i], r_vel[:, i])[0, 1]
             features.append(corr)
 
+        # 特征 3-4: 左右眼相对运动振幅差异的均值与方差
         l_amp = np.linalg.norm(l_vel, axis=1)
         r_amp = np.linalg.norm(r_vel, axis=1)
         amp_diff = np.abs(l_amp - r_amp)
         features.append(np.mean(amp_diff))
         features.append(np.var(amp_diff))
 
+        # 特征 5-6: 左右眼 X/Y 轴晃动幅度(标准差)的绝对差异
         l_std_x, l_std_y = np.std(l_seq_smooth[:, 0]), np.std(l_seq_smooth[:, 1])
         r_std_x, r_std_y = np.std(r_seq_smooth[:, 0]), np.std(r_seq_smooth[:, 1])
         
@@ -101,22 +107,21 @@ class FeatureEngineer:
         
         # =========================================================
         # 【新增核心】: 凝视点分散度特征 (Gaze Dispersion)
-        # =========================================================
         # 估算凝视点：取归一化后的左右眼坐标的中心点
+        # =========================================================
         gaze_points = (l_seq_scaled + r_seq_scaled) / 2.0  
         
-        # 分析其在时间窗口内的分散程度（标准差）
         gaze_dispersion_x = np.std(gaze_points[:, 0])
         gaze_dispersion_y = np.std(gaze_points[:, 1])
         
-        features.append(gaze_dispersion_x)
-        features.append(gaze_dispersion_y)
+        features.append(gaze_dispersion_x) 
+        features.append(gaze_dispersion_y) 
         # =========================================================
         
         return np.array(features)
 
 # ==========================================
-# Module 3: 严格物理隔离的健康数据处理
+# Module 3 & 4: 数据处理
 # ==========================================
 def process_healthy_images_strict(image_paths_list, extractor, seq_len=30, max_seqs=150, desc=""):
     X_healthy, y_healthy = [], []
@@ -136,9 +141,6 @@ def process_healthy_images_strict(image_paths_list, extractor, seq_len=30, max_s
         seq_count += 1
     return np.array(X_healthy), np.array(y_healthy)
 
-# ==========================================
-# Module 4: 患者视频处理
-# ==========================================
 def process_patient_videos(video_paths, extractor, seq_len=30):
     X_ill, y_ill = [], []
     for vid_path in video_paths:
@@ -162,10 +164,10 @@ def process_patient_videos(video_paths, extractor, seq_len=30):
     return np.array(X_ill), np.array(y_ill)
 
 # ==========================================
-# Module 5: 逻辑回归 对比实验主流程 (绝对双向物理隔离)
+# Module 5: 随机森林 对比实验主流程
 # ==========================================
 if __name__ == "__main__":
-    print("=== ECI Binocular Screening System (Robust LR Baseline) ===")
+    print("=== ECI Binocular Screening System (Robust Random Forest Version) ===")
     
     onnx_path = "/home/610-sty/money/eye/model/onnx/model.onnx"
     healthy_path = "/home/610-sty/money/eye/MPIIFaceGaze_dataset/MPIIFaceGaze"
@@ -173,11 +175,8 @@ if __name__ == "__main__":
     
     extractor = YoloEyeExtractor(model_path=onnx_path)
     
-    # --------------------------------------------------
-    # 健康组数据的严格物理切分
-    # --------------------------------------------------
     all_healthy_images = glob.glob(os.path.join(healthy_path, "**", "*.jpg"), recursive=True)
-    all_healthy_images = sorted(all_healthy_images) 
+    all_healthy_images = sorted(all_healthy_images)
     
     split_index = int(len(all_healthy_images) * 0.8)
     healthy_train_images = all_healthy_images[:split_index]
@@ -187,9 +186,6 @@ if __name__ == "__main__":
     X_h_train, y_h_train = process_healthy_images_strict(healthy_train_images, extractor, seq_len=30, max_seqs=120, desc="Train")
     X_h_test, y_h_test = process_healthy_images_strict(healthy_test_images, extractor, seq_len=30, max_seqs=30, desc="Test")
     
-    # --------------------------------------------------
-    # 患者组数据的留一法物理隔离
-    # --------------------------------------------------
     all_ill_videos = glob.glob(os.path.join(ill_dir, "*.mp4")) + glob.glob(os.path.join(ill_dir, "*.avi"))
     test_videos = [v for v in all_ill_videos if "test1" in os.path.basename(v)]
     train_videos = [v for v in all_ill_videos if "test1" not in os.path.basename(v)]
@@ -198,47 +194,37 @@ if __name__ == "__main__":
     X_ill_train, y_ill_train = process_patient_videos(train_videos, extractor, seq_len=30)
     X_ill_test, y_ill_test = process_patient_videos(test_videos, extractor, seq_len=30)
     
-    # --------------------------------------------------
-    # 汇聚最终训练和测试集
-    # --------------------------------------------------
     X_train = np.vstack((X_h_train, X_ill_train))
     y_train = np.hstack((y_h_train, y_ill_train))
     X_test = np.vstack((X_h_test, X_ill_test))
     y_test = np.hstack((y_h_test, y_ill_test))
     
-    print(f"\n[Data Aggregation Complete]")
-    print(f"Training set: {len(X_train)} (Healthy: {sum(y_train==0)}, Patient: {sum(y_train==1)})")
-    print(f"Test set: {len(X_test)} (Healthy: {sum(y_test==0)}, Patient: {sum(y_test==1)})")
-    
-    # ⚠️ 数据标准化 (Z-score) 是逻辑回归收敛和解析权重的前提
-    print("\n[Data Preprocessing] Scaling features for Logistic Regression (StandardScaler)...")
-    scaler = StandardScaler()
-    X_train_scaled = scaler.fit_transform(X_train)
-    X_test_scaled = scaler.transform(X_test)  # 测试集严禁fit
-    
     # ---------------------------------------------------------
-    # 【核心修复】: 强抗过拟合的 LR 配置
-    # 增加 L2 正则化惩罚 (将 C 从默认的 1.0 降低到 0.5)
+    # 【根治方案核心 2】: 强抗过拟合的模型配置
     # ---------------------------------------------------------
-    print("\n[Model Training] Training Robust Logistic Regression (Medical Gold Standard)...")
-    clf_lr = LogisticRegression(C=0.5, class_weight='balanced', random_state=42)
-    clf_lr.fit(X_train_scaled, y_train)
+    print("\n[Model Training] Training Robust Random Forest Classifier...")
+    clf_rf = RandomForestClassifier(
+        n_estimators=150, 
+        class_weight='balanced', 
+        max_depth=4,              # 强制限制深度，拒绝死记硬背
+        min_samples_leaf=5,       # 保证每个叶子至少5个样本，提高泛化能力
+        max_features='sqrt',
+        random_state=42
+    )
+    clf_rf.fit(X_train, y_train)
     
-    y_pred = clf_lr.predict(X_test_scaled)
+    y_pred = clf_rf.predict(X_test)
     acc = accuracy_score(y_test, y_pred)
     
     print("\n==================================================")
-    print("        System Evaluation Report (Robust LR Baseline)")
+    print("        System Evaluation Report (Robust RF Baseline)")
     print("==================================================")
     print(f"Test Set Accuracy: {acc * 100:.2f}%")
     print("\nDetailed Classification Metrics:")
     print(classification_report(y_test, y_pred, target_names=["Low Risk (Healthy)", "High Risk (ECI)"]))
     
-    # ==================================================
-    # Module 6: LR 模型可解释性分析与模型保存
-    # ==================================================
     print("\n==================================================")
-    print("       LR Interpretability Analysis (Coefficients)")
+    print("       Random Forest Interpretability Analysis")
     print("==================================================")
     
     # =========================================================
@@ -255,47 +241,33 @@ if __name__ == "__main__":
         "Gaze Dispersion Y"
     ]
     
-    # 获取逻辑回归的系数（取绝对值评估影响力大小）
-    importances = np.abs(clf_lr.coef_[0])
-    importances = importances / np.sum(importances) 
+    importances = clf_rf.feature_importances_
     indices = np.argsort(importances)[::-1]
     
-    print("[Feature Weight Ranking]:")
+    print("[Feature Importance Ranking]:")
     for f in range(6):
         idx = indices[f]
-        print(f"  TOP {f + 1}. {feature_names[idx]:<25} Absolute Weight: {importances[idx] * 100:.2f}%")
+        print(f"  TOP {f + 1}. {feature_names[idx]:<25} Contribution: {importances[idx] * 100:.2f}%")
         
     try:
         plt.figure(figsize=(12, 6))
-        plt.title("Robust LR: Feature Weight Analysis", fontsize=14, fontweight='bold')
-        
-        # 逻辑回归使用蓝灰色系柱状图区分
-        bars = plt.bar(range(6), importances[indices][:6], align="center", color='#607C8E') 
+        plt.title("Robust Random Forest: Feature Importance Analysis", fontsize=14, fontweight='bold')
+        bars = plt.bar(range(6), importances[indices][:6], align="center", color='#4C72B0') 
         plt.xticks(range(6), [feature_names[i] for i in indices][:6], rotation=45, ha='right', fontsize=11)
         plt.xlim([-1, 6])
-        plt.ylabel("Normalized Absolute Coefficient", fontsize=12)
+        plt.ylabel("Gini Importance", fontsize=12)
         plt.tight_layout()
         
         for bar in bars:
             yval = bar.get_height()
             plt.text(bar.get_x() + bar.get_width()/2, yval + 0.005, f'{yval*100:.1f}%', ha='center', va='bottom', fontsize=10)
             
-        plt.savefig("feature_importance_lr_robust.png", dpi=300)
+        plt.savefig("feature_importance_rf_robust.png", dpi=300)
     except Exception as e:
         print(f"\n[Plotting Failed] Error: {e}")
         
-    # --------------------------------------------------
-    # 模型保存
-    # --------------------------------------------------
-    model_save_path = "eci_model_lr.pkl"
-    scaler_save_path = "eci_scaler_lr.pkl"
-    print("\n[Model Saving] Saving the trained LR model and Scaler...")
-    try:
-        joblib.dump(clf_lr, model_save_path)
-        joblib.dump(scaler, scaler_save_path)
-        print(f"  -> Model successfully saved to: {model_save_path}")
-        print(f"  -> Scaler successfully saved to: {scaler_save_path}")
-    except Exception as e:
-        print(f"  -> Failed to save model or scaler. Error: {e}")
-
+    model_save_path = "eci_model_rf.pkl"
+    print("\n[Model Saving] Saving the trained Robust Random Forest model...")
+    joblib.dump(clf_rf, model_save_path)
+    print(f"  -> Model successfully saved to: {model_save_path}")
     print("==================================================")
